@@ -4,7 +4,7 @@ A comprehensive data engineering project demonstrating the transformation from n
 
 ---
 
-## 📋 Table of Contents
+##  Table of Contents
 
 - [Overview](#overview)
 - [Project Structure](#project-structure)
@@ -22,7 +22,6 @@ This project simulates a real-world data engineering scenario at HealthTech Anal
 
 - **OLTP Schema**: Normalized (3NF) transactional database with 10 tables
 - **OLAP Schema**: Optimized star schema with dimension tables, fact tables, and bridge tables
-- **Data Generators**: Python scripts to generate 10,000 rows per table
 - **Analysis Documents**: Query performance analysis, design decisions, and reflections
 
 ---
@@ -45,13 +44,6 @@ Data_Modelling/
 │   │   └── star_schema.sql      # Star schema DDL
 │   └── description.md           # OLAP design explanation
 │
-├── logs/
-│   ├── oltp.log                 # Transaction logs
-│   ├── etl.log                  # ETL transformation logs
-│   └── error.log                # Error logs
-│
-├── generate_oltp_data.py        # OLTP data generator
-├── generate_olap_data.py        # OLAP data generator
 ├── task.md                      # Original project requirements
 ├── query_analysis.txt           # Query performance analysis
 ├── design_decisions.txt         # Star schema design rationale
