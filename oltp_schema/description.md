@@ -140,27 +140,6 @@ erDiagram
 
 ---
 
-## Performance Limitations
-
-### Why Analytical Queries Are Slow
-
-When running analytical queries (e.g., "monthly revenue by specialty"), the normalized schema requires:
-
-1. **Multiple JOINs**: A simple revenue query needs 4+ table joins:
-   ```
-   billing → encounters → providers → specialties
-   ```
-
-2. **Junction Table Overhead**: Many-to-many relationships require joining through bridge tables:
-   ```
-   encounters → encounter_diagnoses → diagnoses
-   encounters → encounter_procedures → procedures
-   ```
-
-3. **No Pre-Aggregation**: Counts and sums must be calculated at query time
-
-4. **Row Explosion**: Joining multiple junction tables can multiply row counts exponentially
-
 ---
 
 ## Data Files
