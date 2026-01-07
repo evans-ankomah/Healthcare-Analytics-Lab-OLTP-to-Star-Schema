@@ -71,15 +71,9 @@ Data_Modelling/
 
 ```bash
 # 1. Navigate to project directory
-cd "Data Modelling"
+cd "Healthcare Analytics: OLTP to Star Schema"
 
-# 2. Generate OLTP data (creates data/oltp/*.sql files)
-python generate_oltp_data.py
-
-# 3. Generate OLAP data (creates data/olap/*.sql files)
-python generate_olap_data.py
-
-# 4. Execute SQL files in your preferred database
+# 2. Execute SQL files in your preferred database
 ```
 
 ---
@@ -88,13 +82,11 @@ python generate_olap_data.py
 
 ### Step 1: Generate OLTP Data
 
-Run the OLTP data generator to create INSERT statements for all 10 normalized tables:
+Run the OLTP data create INSERT statements for all 10 normalized tables:
 
-```bash
-python generate_oltp_data.py
-```
 
-**Output**: Creates 10 SQL files in `data/oltp/`:
+
+**Description**: 10 SQL insertion files in `data/oltp/`:
 | File | Description | Rows |
 |------|-------------|------|
 | `patients.sql` | Patient demographics | 10,000 |
@@ -161,7 +153,7 @@ Run the OLAP data generator to create INSERT statements for the star schema:
 python generate_olap_data.py
 ```
 
-**Output**: Creates 11 SQL files in `data/olap/`:
+**Description**: 11 SQL insertion files in `data/olap/`:
 | File | Table Type | Description |
 |------|-----------|-------------|
 | `dim_date.sql` | Dimension | Calendar dates (2 years) |
@@ -235,15 +227,6 @@ GROUP BY d.year, d.month, s.specialty_name, et.encounter_type_name;
 | **Typical Joins** | 4-6 per query | 2-3 per query |
 | **Query Speed** | Slower for analytics | ~10x faster |
 | **Data Redundancy** | Minimal | Controlled duplication |
-
-### Key Performance Improvements
-
-| Query | OLTP Time | OLAP Time | Improvement |
-|-------|-----------|-----------|-------------|
-| Monthly Encounters | ~1.8s | ~150ms | **12x faster** |
-| Diagnosis-Procedure Pairs | ~2.5s | ~200ms | **12x faster** |
-| 30-Day Readmissions | ~3.2s | ~300ms | **10x faster** |
-| Revenue by Specialty | ~1.5s | ~120ms | **12x faster** |
 
 ---
 
