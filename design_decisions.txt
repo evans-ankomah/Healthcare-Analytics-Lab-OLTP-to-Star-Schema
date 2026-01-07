@@ -1,0 +1,300 @@
+================================================================================
+DESIGN DECISIONS - Star Schema for Healthcare Analytics
+================================================================================
+Part 3: Design the Star Schema
+
+This document details all design decisions for the dimensional model that will
+replace the normalized OLTP schema for analytical queries.
+
+================================================================================
+DECISION 1: Fact Table Grain
+================================================================================
+
+CHOSEN OPTION: Option A - One row per encounter
+
+--------------------------------------------------------------------------------
+JUSTIFICATION:
+--------------------------------------------------------------------------------
+
+After analyzing the 4 business questions, I chose Option A (one row per 
+encounter) for the following reasons:
+
+1. **Query Alignment**: All 4 questions aggregate at the encounter level:
+   - Q1: Count encounters by month/specialty
+   - Q2: Count encounters with specific diagnosis-procedure pairs
+   - Q3: Compare encounters for readmission logic
+   - Q4: Sum billing amounts per encounter (1:1 with encounters)
+
+2. **Simplicity**: One row per encounter is the most intuitive grain and 
+   matches how business users think about healthcare data.
+
+3. **Avoiding Over-Granularity**: Options B and C would create multiple rows 
+   per encounter (one per diagnosis or procedure), which would:
+   - Require careful DISTINCT counting to avoid double-counting encounters
+   - Inflate storage significantly
+   - Make simple encounter counts more complex
+
+4. **Handling Many-to-Many**: Diagnoses and procedures are handled via 
+   bridge tables (Decision 4), keeping the fact table clean.
+
+--------------------------------------------------------------------------------
+TRADE-OFFS:
+--------------------------------------------------------------------------------
+
+- Diagnosis/procedure details require joining bridge tables
+- Cannot analyze at diagnosis or procedure grain without joins
+- Pre-aggregated counts (diagnosis_count, procedure_count) compensate for this
+
+
+================================================================================
+DECISION 2: Dimension Tables
+================================================================================
+
+I will create the following 6 dimension tables:
+
+--------------------------------------------------------------------------------
+DIM_DATE (Time Dimension)
+--------------------------------------------------------------------------------
+
+Purpose: Pre-computed date attributes to eliminate YEAR()/MONTH() functions
+
+Columns:
+| Column          | Type        | Description                          |
+|-----------------|-------------|--------------------------------------|
+| date_key        | INT         | Surrogate key (YYYYMMDD format)      |
+| calendar_date   | DATE        | Actual date value                    |
+| year            | INT         | 4-digit year (e.g., 2024)            |
+| quarter         | INT         | Quarter number (1-4)                 |
+| month           | INT         | Month number (1-12)                  |
+| month_name      | VARCHAR(20) | Full month name (e.g., January)      |
+| week_of_year    | INT         | Week number (1-53)                   |
+| day_of_month    | INT         | Day number (1-31)                    |
+| day_of_week     | INT         | Day number (1=Monday, 7=Sunday)      |
+| day_name        | VARCHAR(20) | Day name (e.g., Monday)              |
+| is_weekend      | BOOLEAN     | TRUE if Saturday or Sunday           |
+| fiscal_year     | INT         | Fiscal year (may differ from calendar)|
+| fiscal_quarter  | INT         | Fiscal quarter (1-4)                 |
+
+Justification: Pre-computing these values eliminates function calls in queries
+and enables efficient filtering/grouping by any time period.
+
+--------------------------------------------------------------------------------
+DIM_PATIENT
+--------------------------------------------------------------------------------
+
+Purpose: Patient demographics for analysis and filtering
+
+Columns:
+| Column          | Type        | Description                          |
+|-----------------|-------------|--------------------------------------|
+| patient_key     | INT         | Surrogate key                        |
+| patient_id      | INT         | Natural key from OLTP                |
+| first_name      | VARCHAR(100)| Patient first name                   |
+| last_name       | VARCHAR(100)| Patient last name                    |
+| full_name       | VARCHAR(200)| Concatenated full name               |
+| date_of_birth   | DATE        | Birth date                           |
+| age             | INT         | Current age (computed)               |
+| age_group       | VARCHAR(20) | Age bracket (e.g., "65-74")          |
+| gender          | CHAR(1)     | M/F                                  |
+| gender_desc     | VARCHAR(10) | Full gender description              |
+| mrn             | VARCHAR(20) | Medical Record Number                |
+
+Justification: Age groups enable demographic analysis without date math.
+Full name is denormalized for easier reporting.
+
+--------------------------------------------------------------------------------
+DIM_PROVIDER
+--------------------------------------------------------------------------------
+
+Purpose: Provider information with denormalized specialty/department
+
+Columns:
+| Column          | Type        | Description                          |
+|-----------------|-------------|--------------------------------------|
+| provider_key    | INT         | Surrogate key                        |
+| provider_id     | INT         | Natural key from OLTP                |
+| first_name      | VARCHAR(100)| Provider first name                  |
+| last_name       | VARCHAR(100)| Provider last name                   |
+| full_name       | VARCHAR(200)| Concatenated full name               |
+| credential      | VARCHAR(20) | MD, DO, NP, etc.                     |
+| specialty_id    | INT         | FK to specialty (for drill-through)  |
+| specialty_name  | VARCHAR(100)| DENORMALIZED specialty name          |
+| specialty_code  | VARCHAR(10) | DENORMALIZED specialty code          |
+| department_id   | INT         | FK to department (for drill-through) |
+| department_name | VARCHAR(100)| DENORMALIZED department name         |
+
+Justification: Denormalizing specialty and department into the provider 
+dimension eliminates 2 joins in most queries (Q1, Q4 especially).
+
+--------------------------------------------------------------------------------
+DIM_SPECIALTY
+--------------------------------------------------------------------------------
+
+Purpose: Standalone specialty dimension for specialty-level analysis
+
+Columns:
+| Column          | Type        | Description                          |
+|-----------------|-------------|--------------------------------------|
+| specialty_key   | INT         | Surrogate key                        |
+| specialty_id    | INT         | Natural key from OLTP                |
+| specialty_name  | VARCHAR(100)| Full specialty name                  |
+| specialty_code  | VARCHAR(10) | Abbreviated code                     |
+
+Justification: Although specialty is denormalized into dim_provider, a 
+separate dimension allows direct specialty analysis without going through 
+providers.
+
+--------------------------------------------------------------------------------
+DIM_DEPARTMENT
+--------------------------------------------------------------------------------
+
+Purpose: Hospital department information
+
+Columns:
+| Column          | Type        | Description                          |
+|-----------------|-------------|--------------------------------------|
+| department_key  | INT         | Surrogate key                        |
+| department_id   | INT         | Natural key from OLTP                |
+| department_name | VARCHAR(100)| Full department name                 |
+| floor           | INT         | Building floor location              |
+| capacity        | INT         | Bed/room capacity                    |
+
+Justification: Enables location-based and capacity analysis.
+
+--------------------------------------------------------------------------------
+DIM_ENCOUNTER_TYPE
+--------------------------------------------------------------------------------
+
+Purpose: Standardized encounter type codes
+
+Columns:
+| Column             | Type        | Description                       |
+|--------------------|-------------|-----------------------------------|
+| encounter_type_key | INT         | Surrogate key                     |
+| type_code          | VARCHAR(20) | Short code (OP, IP, ER, etc.)     |
+| type_name          | VARCHAR(50) | Full name (Outpatient, Inpatient) |
+| is_inpatient       | BOOLEAN     | TRUE if requires admission        |
+| avg_los_hours      | DECIMAL     | Typical length of stay            |
+
+Justification: Enables easy filtering by encounter category and supports
+readmission analysis (is_inpatient flag).
+
+
+================================================================================
+DECISION 3: Pre-Aggregated Metrics
+================================================================================
+
+The fact table will store these pre-computed metrics:
+
+--------------------------------------------------------------------------------
+METRICS IN FACT_ENCOUNTERS:
+--------------------------------------------------------------------------------
+
+| Metric             | Type          | Calculation                        |
+|--------------------|---------------|------------------------------------|
+| diagnosis_count    | INT           | COUNT of diagnoses per encounter   |
+| procedure_count    | INT           | COUNT of procedures per encounter  |
+| primary_diagnosis_id | INT         | First diagnosis (sequence=1)       |
+| total_claim_amount | DECIMAL(12,2) | SUM of claim_amount from billing   |
+| total_allowed_amount| DECIMAL(12,2)| SUM of allowed_amount from billing |
+| length_of_stay_hours| INT          | Hours between admit and discharge  |
+| is_readmission     | BOOLEAN       | TRUE if within 30 days of prior    |
+
+--------------------------------------------------------------------------------
+JUSTIFICATION:
+--------------------------------------------------------------------------------
+
+1. **diagnosis_count / procedure_count**: 
+   - Eliminates need to join and count from junction tables
+   - Enables "encounters with 3+ diagnoses" queries instantly
+   - Supports Q2 (diagnosis-procedure pair analysis)
+
+2. **primary_diagnosis_id**:
+   - Most common analytical need is the primary diagnosis
+   - Avoids joining encounter_diagnoses for simple reports
+
+3. **total_claim_amount / total_allowed_amount**:
+   - Pre-aggregated from billing table
+   - Enables Q4 instantly without joining billing
+   - Most encounters have 1 billing record; pre-aggregating handles edge cases
+
+4. **length_of_stay_hours**:
+   - Pre-computed from encounter_date and discharge_date
+   - Enables LOS analysis without date math
+
+5. **is_readmission**:
+   - Pre-computed flag eliminates the expensive self-join in Q3
+   - Calculated during ETL by comparing to prior encounters
+   - BIGGEST performance improvement for readmission queries
+
+
+================================================================================
+DECISION 4: Bridge Tables
+================================================================================
+
+DECISION: YES, I will use bridge tables for diagnoses and procedures.
+
+--------------------------------------------------------------------------------
+BRIDGE TABLES CREATED:
+--------------------------------------------------------------------------------
+
+1. **bridge_encounter_diagnoses**
+   - Links fact_encounters to dim_diagnosis
+   - Columns: encounter_key, diagnosis_key, diagnosis_sequence
+
+2. **bridge_encounter_procedures**
+   - Links fact_encounters to dim_procedure  
+   - Columns: encounter_key, procedure_key, procedure_date
+
+--------------------------------------------------------------------------------
+WHY BRIDGE TABLES (vs. Denormalizing into Fact):
+--------------------------------------------------------------------------------
+
+1. **Variable Cardinality**: An encounter can have 1-10+ diagnoses/procedures.
+   Denormalizing would require:
+   - Either many NULL columns (diagnosis_1, diagnosis_2, ..., diagnosis_10)
+   - Or repeating the fact row for each diagnosis (exploding row count)
+
+2. **Query Flexibility**: Bridge tables support:
+   - "All encounters with diagnosis X" (join bridge once)
+   - "Encounters with BOTH diagnosis X and Y" (join bridge twice)
+   - Q2's diagnosis-procedure pair analysis
+
+3. **Storage Efficiency**: Bridge tables only store actual relationships,
+   not NULL placeholders.
+
+4. **Analyst Expectations**: Bridge tables are a standard dimensional 
+   modeling pattern that analysts will recognize.
+
+--------------------------------------------------------------------------------
+TRADE-OFF ACCEPTED:
+--------------------------------------------------------------------------------
+
+- Queries involving diagnoses/procedures still need 1 join
+- Mitigated by pre-aggregating counts into fact table
+- Most reports just need the primary diagnosis (stored in fact)
+
+--------------------------------------------------------------------------------
+PRODUCTION CONSIDERATION:
+--------------------------------------------------------------------------------
+
+In production, I might also consider:
+- Storing top 3 diagnoses directly in fact table (hybrid approach)
+- Creating aggregate tables for common diagnosis/procedure reports
+- Using JSON arrays for diagnoses if the database supports it
+
+
+================================================================================
+SUMMARY: DESIGN RATIONALE
+================================================================================
+
+| Decision            | Choice                    | Key Benefit              |
+|---------------------|---------------------------|--------------------------|
+| Fact Grain          | One row per encounter     | Matches business logic   |
+| Dimensions          | 6 tables                  | Balanced granularity     |
+| Denormalization     | Specialty in dim_provider | Eliminates 2 joins       |
+| Pre-aggregation     | 7 metrics in fact         | Instant calculations     |
+| Bridge Tables       | Yes, for M:M relationships| Flexible queries         |
+| is_readmission flag | Pre-computed              | Eliminates self-join     |
+
+================================================================================

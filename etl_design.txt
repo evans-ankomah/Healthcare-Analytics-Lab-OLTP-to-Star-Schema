@@ -1,0 +1,501 @@
+================================================================================
+ETL DESIGN - OLTP to Star Schema Transformation
+================================================================================
+Healthcare Analytics Lab: OLTP to Star Schema
+Part 3: ETL Logic
+
+This document describes the Extract, Transform, Load (ETL) process for 
+populating the star schema from the normalized OLTP database.
+
+================================================================================
+ETL OVERVIEW
+================================================================================
+
+Source: OLTP Database (10 normalized tables)
+Target: Star Schema (7 dimensions + 1 fact + 2 bridges)
+
+ETL Flow:
+1. Load Dimension Tables (in dependency order)
+2. Load Fact Table (with dimension key lookups)
+3. Load Bridge Tables (many-to-many relationships)
+
+================================================================================
+DIMENSION LOAD LOGIC
+================================================================================
+
+--------------------------------------------------------------------------------
+1. DIM_DATE (One-Time Load)
+--------------------------------------------------------------------------------
+
+Purpose: Pre-populate all dates for the analysis period (2+ years)
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_date(start_date, end_date):
+    current_date = start_date
+    
+    WHILE current_date <= end_date:
+        date_key = FORMAT(current_date, 'YYYYMMDD') as INTEGER
+        
+        INSERT INTO dim_date VALUES (
+            date_key,
+            current_date,
+            YEAR(current_date),
+            QUARTER(current_date),
+            MONTH(current_date),
+            MONTHNAME(current_date),
+            WEEKOFYEAR(current_date),
+            DAY(current_date),
+            DAYOFWEEK(current_date),
+            DAYNAME(current_date),
+            DAYOFWEEK(current_date) IN (6, 7),  -- is_weekend
+            FISCAL_YEAR(current_date),          -- company-specific
+            FISCAL_QUARTER(current_date)        -- company-specific
+        )
+        
+        current_date = current_date + 1 DAY
+    END WHILE
+END PROCEDURE
+```
+
+Load Strategy: Full load once, then add new dates as needed.
+
+--------------------------------------------------------------------------------
+2. DIM_PATIENT
+--------------------------------------------------------------------------------
+
+Source Table: patients
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_patient():
+    FOR EACH patient IN oltp.patients:
+        
+        -- Calculate derived attributes
+        age = DATEDIFF(CURRENT_DATE, patient.date_of_birth) / 365
+        
+        age_group = CASE
+            WHEN age < 18 THEN '0-17'
+            WHEN age < 35 THEN '18-34'
+            WHEN age < 50 THEN '35-49'
+            WHEN age < 65 THEN '50-64'
+            WHEN age < 75 THEN '65-74'
+            ELSE '75+'
+        END
+        
+        full_name = CONCAT(patient.first_name, ' ', patient.last_name)
+        
+        gender_desc = CASE patient.gender
+            WHEN 'M' THEN 'Male'
+            WHEN 'F' THEN 'Female'
+            ELSE 'Unknown'
+        END
+        
+        -- Insert with surrogate key (auto-increment)
+        INSERT INTO dim_patient (
+            patient_id, first_name, last_name, full_name,
+            date_of_birth, age, age_group,
+            gender, gender_desc, mrn
+        ) VALUES (
+            patient.patient_id, patient.first_name, patient.last_name, full_name,
+            patient.date_of_birth, age, age_group,
+            patient.gender, gender_desc, patient.mrn
+        )
+    END FOR
+END PROCEDURE
+```
+
+Update Strategy: 
+- Type 1 SCD (Slowly Changing Dimension): Overwrite for name/MRN changes
+- Recalculate age periodically
+
+--------------------------------------------------------------------------------
+3. DIM_SPECIALTY
+--------------------------------------------------------------------------------
+
+Source Table: specialties
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_specialty():
+    INSERT INTO dim_specialty (specialty_id, specialty_name, specialty_code)
+    SELECT specialty_id, specialty_name, specialty_code
+    FROM oltp.specialties
+END PROCEDURE
+```
+
+Load Strategy: Full refresh on each ETL run (small table)
+
+--------------------------------------------------------------------------------
+4. DIM_DEPARTMENT
+--------------------------------------------------------------------------------
+
+Source Table: departments
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_department():
+    INSERT INTO dim_department (department_id, department_name, floor, capacity)
+    SELECT department_id, department_name, floor, capacity
+    FROM oltp.departments
+END PROCEDURE
+```
+
+Load Strategy: Full refresh on each ETL run (small table)
+
+--------------------------------------------------------------------------------
+5. DIM_PROVIDER (with Denormalization)
+--------------------------------------------------------------------------------
+
+Source Tables: providers, specialties, departments
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_provider():
+    FOR EACH provider IN oltp.providers:
+        
+        -- Lookup specialty details
+        specialty = SELECT * FROM oltp.specialties 
+                    WHERE specialty_id = provider.specialty_id
+        
+        -- Lookup department details
+        department = SELECT * FROM oltp.departments 
+                     WHERE department_id = provider.department_id
+        
+        -- Lookup dimension keys
+        specialty_key = SELECT specialty_key FROM dim_specialty 
+                        WHERE specialty_id = specialty.specialty_id
+                        
+        department_key = SELECT department_key FROM dim_department 
+                         WHERE department_id = department.department_id
+        
+        full_name = CONCAT(provider.first_name, ' ', provider.last_name)
+        
+        INSERT INTO dim_provider (
+            provider_id, first_name, last_name, full_name, credential,
+            specialty_key, specialty_id, specialty_name, specialty_code,
+            department_key, department_id, department_name
+        ) VALUES (
+            provider.provider_id, provider.first_name, provider.last_name, 
+            full_name, provider.credential,
+            specialty_key, specialty.specialty_id, specialty.specialty_name, 
+            specialty.specialty_code,
+            department_key, department.department_id, department.department_name
+        )
+    END FOR
+END PROCEDURE
+```
+
+Update Strategy: Type 1 SCD for most attributes
+
+--------------------------------------------------------------------------------
+6. DIM_ENCOUNTER_TYPE
+--------------------------------------------------------------------------------
+
+Source: Derived from encounters.encounter_type distinct values
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_encounter_type():
+    encounter_types = [
+        ('OP', 'Outpatient', FALSE, 2.0),
+        ('IP', 'Inpatient', TRUE, 96.0),
+        ('ER', 'ER', FALSE, 6.0),
+        ('TH', 'Telehealth', FALSE, 0.5),
+        ('UC', 'Urgent Care', FALSE, 3.0)
+    ]
+    
+    FOR EACH (code, name, is_inpatient, avg_los) IN encounter_types:
+        INSERT INTO dim_encounter_type VALUES (
+            code, name, is_inpatient, avg_los
+        )
+    END FOR
+END PROCEDURE
+```
+
+Load Strategy: Reference data, loaded once
+
+--------------------------------------------------------------------------------
+7. DIM_DIAGNOSIS
+--------------------------------------------------------------------------------
+
+Source Table: diagnoses
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_diagnosis():
+    INSERT INTO dim_diagnosis (diagnosis_id, icd10_code, icd10_description)
+    SELECT diagnosis_id, icd10_code, icd10_description
+    FROM oltp.diagnoses
+END PROCEDURE
+```
+
+--------------------------------------------------------------------------------
+8. DIM_PROCEDURE
+--------------------------------------------------------------------------------
+
+Source Table: procedures
+
+Pseudocode:
+
+```
+PROCEDURE load_dim_procedure():
+    INSERT INTO dim_procedure (procedure_id, cpt_code, cpt_description)
+    SELECT procedure_id, cpt_code, cpt_description
+    FROM oltp.procedures
+END PROCEDURE
+```
+
+
+================================================================================
+FACT TABLE LOAD LOGIC
+================================================================================
+
+Source Tables: encounters, billing, encounter_diagnoses, encounter_procedures
+
+Pseudocode:
+
+```
+PROCEDURE load_fact_encounters():
+    FOR EACH encounter IN oltp.encounters:
+        
+        -- ========================================
+        -- STEP 1: Lookup Dimension Keys
+        -- ========================================
+        
+        encounter_date_key = FORMAT(encounter.encounter_date, 'YYYYMMDD')
+        discharge_date_key = FORMAT(encounter.discharge_date, 'YYYYMMDD')
+        
+        patient_key = SELECT patient_key FROM dim_patient 
+                      WHERE patient_id = encounter.patient_id
+        
+        provider_key = SELECT provider_key FROM dim_provider 
+                       WHERE provider_id = encounter.provider_id
+        
+        department_key = SELECT department_key FROM dim_department 
+                         WHERE department_id = encounter.department_id
+        
+        encounter_type_key = SELECT encounter_type_key FROM dim_encounter_type 
+                             WHERE type_name = encounter.encounter_type
+        
+        specialty_key = SELECT specialty_key FROM dim_provider 
+                        WHERE provider_id = encounter.provider_id
+        
+        -- ========================================
+        -- STEP 2: Calculate Pre-Aggregated Metrics
+        -- ========================================
+        
+        -- Diagnosis count
+        diagnosis_count = SELECT COUNT(*) FROM oltp.encounter_diagnoses 
+                          WHERE encounter_id = encounter.encounter_id
+        
+        -- Procedure count
+        procedure_count = SELECT COUNT(*) FROM oltp.encounter_procedures 
+                          WHERE encounter_id = encounter.encounter_id
+        
+        -- Primary diagnosis
+        primary_diagnosis_id = SELECT diagnosis_id FROM oltp.encounter_diagnoses 
+                               WHERE encounter_id = encounter.encounter_id 
+                               AND diagnosis_sequence = 1
+        
+        primary_diagnosis_key = SELECT diagnosis_key FROM dim_diagnosis 
+                                WHERE diagnosis_id = primary_diagnosis_id
+        
+        -- Billing totals
+        billing_totals = SELECT 
+            SUM(claim_amount) AS total_claim,
+            SUM(allowed_amount) AS total_allowed,
+            COUNT(*) AS claim_count
+        FROM oltp.billing 
+        WHERE encounter_id = encounter.encounter_id
+        
+        -- Length of stay
+        length_of_stay_hours = TIMESTAMPDIFF(
+            HOUR, 
+            encounter.encounter_date, 
+            encounter.discharge_date
+        )
+        
+        -- ========================================
+        -- STEP 3: Calculate Readmission Flag
+        -- ========================================
+        
+        is_readmission = FALSE
+        
+        IF encounter.encounter_type = 'Inpatient':
+            prior_discharge = SELECT MAX(e2.discharge_date)
+                FROM oltp.encounters e2
+                WHERE e2.patient_id = encounter.patient_id
+                  AND e2.encounter_type = 'Inpatient'
+                  AND e2.discharge_date < encounter.encounter_date
+                  AND e2.encounter_id <> encounter.encounter_id
+            
+            IF prior_discharge IS NOT NULL:
+                days_since_discharge = DATEDIFF(
+                    encounter.encounter_date, 
+                    prior_discharge
+                )
+                
+                IF days_since_discharge <= 30:
+                    is_readmission = TRUE
+                END IF
+            END IF
+        END IF
+        
+        -- ========================================
+        -- STEP 4: Insert Fact Record
+        -- ========================================
+        
+        INSERT INTO fact_encounters VALUES (
+            encounter.encounter_id,
+            encounter_date_key, discharge_date_key,
+            patient_key, provider_key, department_key,
+            encounter_type_key, specialty_key,
+            encounter.encounter_type,
+            encounter.encounter_date, encounter.discharge_date,
+            diagnosis_count, procedure_count, primary_diagnosis_key,
+            billing_totals.total_claim, billing_totals.total_allowed,
+            billing_totals.claim_count,
+            length_of_stay_hours, is_readmission
+        )
+    END FOR
+END PROCEDURE
+```
+
+--------------------------------------------------------------------------------
+HANDLING MISSING DATA:
+--------------------------------------------------------------------------------
+
+- Unknown dimension keys: Use a special "-1" or "Unknown" dimension record
+- NULL billing: Default to 0 for claim/allowed amounts
+- NULL discharge_date: Use a far-future date or NULL
+- Missing diagnoses: Set diagnosis_count = 0, primary_diagnosis_key = NULL
+
+
+================================================================================
+BRIDGE TABLE LOAD LOGIC
+================================================================================
+
+--------------------------------------------------------------------------------
+BRIDGE_ENCOUNTER_DIAGNOSES
+--------------------------------------------------------------------------------
+
+```
+PROCEDURE load_bridge_diagnoses():
+    FOR EACH ed IN oltp.encounter_diagnoses:
+        
+        encounter_key = SELECT encounter_key FROM fact_encounters 
+                        WHERE encounter_id = ed.encounter_id
+        
+        diagnosis_key = SELECT diagnosis_key FROM dim_diagnosis 
+                        WHERE diagnosis_id = ed.diagnosis_id
+        
+        INSERT INTO bridge_encounter_diagnoses VALUES (
+            encounter_key, diagnosis_key, ed.diagnosis_sequence
+        )
+    END FOR
+END PROCEDURE
+```
+
+--------------------------------------------------------------------------------
+BRIDGE_ENCOUNTER_PROCEDURES
+--------------------------------------------------------------------------------
+
+```
+PROCEDURE load_bridge_procedures():
+    FOR EACH ep IN oltp.encounter_procedures:
+        
+        encounter_key = SELECT encounter_key FROM fact_encounters 
+                        WHERE encounter_id = ep.encounter_id
+        
+        procedure_key = SELECT procedure_key FROM dim_procedure 
+                        WHERE procedure_id = ep.procedure_id
+        
+        INSERT INTO bridge_encounter_procedures VALUES (
+            encounter_key, procedure_key, ep.procedure_date
+        )
+    END FOR
+END PROCEDURE
+```
+
+
+================================================================================
+REFRESH STRATEGY
+================================================================================
+
+--------------------------------------------------------------------------------
+RECOMMENDED: INCREMENTAL DAILY REFRESH
+--------------------------------------------------------------------------------
+
+Frequency: Daily at 2:00 AM (after OLTP system quiet period)
+
+Process:
+
+1. Identify new/changed records since last ETL run:
+   - Use encounter_date >= last_run_date
+   - Use audit columns (updated_at) if available
+
+2. Update dimensions first (to ensure keys exist)
+
+3. Load new fact records
+
+4. Update bridge tables for new encounters
+
+5. Log completion and row counts
+
+--------------------------------------------------------------------------------
+HANDLING LATE-ARRIVING FACTS:
+--------------------------------------------------------------------------------
+
+Scenario: Billing data arrives 1-2 days after encounter
+
+Solution:
+1. Initial fact load with billing amounts = 0
+2. Daily "billing catch-up" process:
+   ```
+   UPDATE fact_encounters f
+   SET total_claim_amount = (SELECT SUM(claim_amount) FROM billing 
+                             WHERE encounter_id = f.encounter_id),
+       total_allowed_amount = (SELECT SUM(allowed_amount) FROM billing 
+                               WHERE encounter_id = f.encounter_id)
+   WHERE f.encounter_date >= DATEADD(DAY, -7, CURRENT_DATE)
+     AND f.total_claim_amount = 0
+   ```
+
+--------------------------------------------------------------------------------
+FULL REFRESH (Monthly):
+--------------------------------------------------------------------------------
+
+Purpose: Ensure data integrity, recalculate derived values
+
+Process:
+1. Truncate star schema tables (fact first, then dimensions)
+2. Reload all dimensions
+3. Reload all facts
+4. Reload all bridges
+5. Rebuild indexes
+
+================================================================================
+ETL EXECUTION ORDER
+================================================================================
+
+1. dim_date (if new dates needed)
+2. dim_specialty
+3. dim_department
+4. dim_encounter_type
+5. dim_diagnosis
+6. dim_procedure
+7. dim_patient
+8. dim_provider (requires specialty, department)
+9. fact_encounters (requires all dimensions)
+10. bridge_encounter_diagnoses (requires fact)
+11. bridge_encounter_procedures (requires fact)
+
+================================================================================
