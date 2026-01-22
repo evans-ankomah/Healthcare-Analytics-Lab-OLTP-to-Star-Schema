@@ -4,7 +4,7 @@ A comprehensive data engineering project demonstrating the transformation from n
 
 ---
 
-##  Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [Project Structure](#project-structure)
@@ -34,15 +34,16 @@ Data_Modelling/
 │   ├── oltp/                    # OLTP INSERT statements (10 SQL files)
 │   └── olap/                    # OLAP INSERT statements (11 SQL files)
 │
-├── oltp/
-│   ├── schema/
-│   │   └── oltp_schema.sql      # Normalized OLTP tables (3NF)
+├── oltp_schema/
+│   ├── oltp_schema.sql          # Normalized OLTP tables (3NF)
 │   └── description.md           # OLTP design explanation
 │
-├── olap/
-│   ├── schema/
-│   │   └── star_schema.sql      # Star schema DDL
+├── olap_schema/
+│   ├── star_schema.sql          # Star schema DDL
 │   └── description.md           # OLAP design explanation
+│
+├── scripts/
+│   └── generate_realistic_data.py  # Data generator script
 │
 ├── task.md                      # Original project requirements
 ├── query_analysis.txt           # Query performance analysis
@@ -63,7 +64,7 @@ Data_Modelling/
 | SQL Database | MySQL/PostgreSQL/SQLite | Executing schema and queries |
 
 > [!NOTE]
-> No external Python packages are required. The generators use only built-in libraries (`random`, `datetime`, `os`).
+> No external Python packages are required. The generators use only built-in libraries (`random`, `datetime`, `pathlib`).
 
 ---
 
@@ -71,9 +72,12 @@ Data_Modelling/
 
 ```bash
 # 1. Navigate to project directory
-cd "Healthcare Analytics: OLTP to Star Schema"
+cd "Data Modelling"
 
-# 2. Execute SQL files in your preferred database
+# 2. Generate realistic OLTP data (optional - data files already included)
+python scripts/generate_realistic_data.py
+
+# 3. Execute SQL files in your preferred database
 ```
 
 ---
@@ -82,23 +86,29 @@ cd "Healthcare Analytics: OLTP to Star Schema"
 
 ### Step 1: Generate OLTP Data
 
-Run the OLTP data create INSERT statements for all 10 normalized tables:
+The project includes pre-generated realistic healthcare data. To regenerate:
 
+```bash
+python scripts/generate_realistic_data.py
+```
 
+**Data Distribution**: The OLTP data follows a realistic structure with:
 
-**Description**: 10 SQL insertion files in `data/oltp/`:
-| File | Description | Rows |
-|------|-------------|------|
-| `patients.sql` | Patient demographics | 10,000 |
-| `specialties.sql` | Medical specialties | 10,000 |
-| `departments.sql` | Hospital departments | 10,000 |
-| `providers.sql` | Healthcare providers | 10,000 |
-| `diagnoses.sql` | ICD-10 diagnosis codes | 10,000 |
-| `procedures.sql` | CPT procedure codes | 10,000 |
-| `encounters.sql` | Patient encounters | 10,000 |
-| `encounter_diagnoses.sql` | Encounter-diagnosis mapping | 10,000 |
-| `encounter_procedures.sql` | Encounter-procedure mapping | 10,000 |
-| `billing.sql` | Billing records | 10,000 |
+| Table | Rows | Type | Description |
+|-------|------|------|-------------|
+| `specialties.sql` | 25 | Lookup | Medical specialties (Cardiology, Neurology, etc.) |
+| `departments.sql` | 20 | Lookup | Hospital departments (ICU, ER, Oncology, etc.) |
+| `diagnoses.sql` | 72 | Reference | ICD-10 diagnosis codes across 10 categories |
+| `procedures.sql` | 60 | Reference | CPT procedure codes (E&M, Surgery, Lab, etc.) |
+| `patients.sql` | 10,000 | Entity | Patient demographics |
+| `providers.sql` | 500 | Entity | Healthcare providers with specialty/department FKs |
+| `encounters.sql` | 10,000 | Transaction | Patient visits (60% outpatient, 25% inpatient, 15% ER) |
+| `encounter_diagnoses.sql` | ~25,000 | Junction | 2-3 diagnoses per encounter average |
+| `encounter_procedures.sql` | ~14,000 | Junction | 1-2 procedures per encounter average |
+| `billing.sql` | 10,000 | Transaction | Claims with realistic amounts by encounter type |
+
+> [!IMPORTANT]
+> **Realistic Data Design**: Unlike synthetic data with artificial duplicates, this dataset uses proper lookup tables (20 departments, 25 specialties) referenced by larger transactional tables. This mirrors real-world healthcare database design.
 
 ---
 
@@ -110,18 +120,18 @@ Run the OLTP data create INSERT statements for all 10 normalized tables:
    CREATE DATABASE healthcare_oltp;
    USE healthcare_oltp;
    ```
-3. Execute the schema: `oltp/schema/oltp_schema.sql`
+3. Execute the schema: `oltp_schema/oltp_schema.sql`
 4. Load the data by executing each file in `data/oltp/` in this order:
-   1. `patients.sql`
-   2. `specialties.sql`
-   3. `departments.sql`
-   4. `providers.sql`
-   5. `diagnoses.sql`
-   6. `procedures.sql`
-   7. `encounters.sql`
-   8. `encounter_diagnoses.sql`
-   9. `encounter_procedures.sql`
-   10. `billing.sql`
+   1. `specialties.sql` (25 rows - lookup table)
+   2. `departments.sql` (20 rows - lookup table)
+   3. `diagnoses.sql` (72 rows - reference table)
+   4. `procedures.sql` (60 rows - reference table)
+   5. `patients.sql` (10,000 rows)
+   6. `providers.sql` (500 rows)
+   7. `encounters.sql` (10,000 rows)
+   8. `encounter_diagnoses.sql` (~25,000 rows)
+   9. `encounter_procedures.sql` (~14,000 rows)
+   10. `billing.sql` (10,000 rows)
 
 ---
 
@@ -130,7 +140,7 @@ Run the OLTP data create INSERT statements for all 10 normalized tables:
 Execute the queries from `query_analysis.txt` to experience performance issues:
 
 ```sql
--- Example: Monthly Encounters by Specialty (requires 4 JOINs)
+-- Example: Monthly Encounters by Specialty (requires 2 JOINs)
 SELECT 
     DATE_FORMAT(e.encounter_date, '%Y-%m') AS month,
     s.specialty_name,
@@ -154,6 +164,7 @@ python generate_olap_data.py
 ```
 
 **Description**: 11 SQL insertion files in `data/olap/`:
+
 | File | Table Type | Description |
 |------|-----------|-------------|
 | `dim_date.sql` | Dimension | Calendar dates (2 years) |
@@ -177,7 +188,7 @@ python generate_olap_data.py
    CREATE DATABASE healthcare_olap;
    USE healthcare_olap;
    ```
-2. Execute the schema: `olap/schema/star_schema.sql`
+2. Execute the schema: `olap_schema/star_schema.sql`
 3. Load dimension tables first (order matters!):
    1. `dim_date.sql`
    2. `dim_patient.sql`
@@ -218,6 +229,32 @@ GROUP BY d.year, d.month, s.specialty_name, et.encounter_type_name;
 
 ## Understanding the Data
 
+### OLTP Data Model
+
+The OLTP schema uses a **realistic data distribution**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    LOOKUP/REFERENCE TABLES                      │
+├─────────────────┬───────┬───────────────────────────────────────┤
+│ specialties     │   25  │ Medical specialties (fixed list)      │
+│ departments     │   20  │ Hospital departments (fixed list)     │
+│ diagnoses       │   72  │ ICD-10 codes (reference data)         │
+│ procedures      │   60  │ CPT codes (reference data)            │
+└─────────────────┴───────┴───────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    TRANSACTIONAL TABLES                         │
+├─────────────────┬────────┬──────────────────────────────────────┤
+│ patients        │ 10,000 │ Unique patients with demographics    │
+│ providers       │    500 │ Doctors → reference specialties/depts│
+│ encounters      │ 10,000 │ Patient visits with FK relationships │
+│ encounter_diag  │~25,000 │ Many-to-many (2-3 per encounter)     │
+│ encounter_proc  │~14,000 │ Many-to-many (1-2 per encounter)     │
+│ billing         │ 10,000 │ One claim per encounter              │
+└─────────────────┴────────┴──────────────────────────────────────┘
+```
+
 ### OLTP vs OLAP Comparison
 
 | Aspect | OLTP (Normalized) | OLAP (Star Schema) |
@@ -240,15 +277,32 @@ GROUP BY d.year, d.month, s.specialty_name, et.encounter_type_name;
 | [star_schema_queries.txt](./star_schema_queries.txt) | Optimized OLAP queries |
 | [etl_design.txt](./etl_design.txt) | ETL pipeline documentation |
 | [reflection.md](./reflection.md) | Project learnings & analysis |
-| [oltp/description.md](./oltp/description.md) | OLTP schema explanation |
-| [olap/description.md](./olap/description.md) | OLAP schema explanation |
+| [oltp_schema/description.md](./oltp_schema/description.md) | OLTP schema explanation |
+| [olap_schema/description.md](./olap_schema/description.md) | OLAP schema explanation |
+
+---
+
+## Data Generation
+
+The data generator (`scripts/generate_realistic_data.py`) creates realistic healthcare data with:
+
+- **Weighted distributions**: 60% outpatient, 25% inpatient, 15% ER encounters
+- **Realistic ICD-10 codes**: Organized by category (Circulatory, Respiratory, etc.)
+- **Realistic CPT codes**: E&M visits, surgeries, radiology, lab tests, etc.
+- **Proper foreign key relationships**: All transactional data references lookup tables
+- **Reproducible output**: Uses random seed for consistent generation
+
+To regenerate data with different parameters, edit and run:
+```bash
+python scripts/generate_realistic_data.py
+```
 
 ---
 
 ## Troubleshooting
 
 > [!WARNING]
-> **Foreign Key Errors**: Ensure you load tables in the correct order (dimensions before facts).
+> **Foreign Key Errors**: Ensure you load tables in the correct order (lookup tables → entity tables → transactional tables).
 
 > [!TIP]
 > **Large Data Sets**: If importing is slow, consider disabling indexes before bulk insert, then re-enable after.

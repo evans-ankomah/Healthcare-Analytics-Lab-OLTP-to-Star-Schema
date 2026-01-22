@@ -172,42 +172,83 @@ CREATE TABLE dim_procedure (
 -- ============================================================================
 -- One row per encounter with FK to all dimensions and pre-aggregated metrics.
 -- Grain: One row per patient encounter.
+--
+-- DENORMALIZATION STRATEGY:
+-- We store commonly-queried dimension attributes DIRECTLY in the fact table
+-- to enable ZERO-JOIN analytical queries. Dimension tables are still available
+-- for drill-through and detailed analysis.
 -- ============================================================================
 CREATE TABLE fact_encounters (
     encounter_key INT PRIMARY KEY AUTO_INCREMENT,     -- Surrogate key
     encounter_id INT NOT NULL UNIQUE,                 -- Natural key from OLTP
     
-    -- Dimension Foreign Keys
-    encounter_date_key INT NOT NULL,                  -- FK to dim_date (encounter date)
-    discharge_date_key INT,                           -- FK to dim_date (discharge date)
+    -- ========================================================================
+    -- DIMENSION FOREIGN KEYS (for drill-through to dimension details)
+    -- ========================================================================
+    encounter_date_key INT NOT NULL,                  -- FK to dim_date
+    discharge_date_key INT,                           -- FK to dim_date
     patient_key INT NOT NULL,                         -- FK to dim_patient
     provider_key INT NOT NULL,                        -- FK to dim_provider
     department_key INT NOT NULL,                      -- FK to dim_department
     encounter_type_key INT NOT NULL,                  -- FK to dim_encounter_type
-    specialty_key INT NOT NULL,                       -- FK to dim_specialty (denormalized)
+    specialty_key INT NOT NULL,                       -- FK to dim_specialty
+    primary_diagnosis_key INT,                        -- FK to dim_diagnosis
     
-    -- Degenerate Dimensions (attributes without their own dimension)
-    encounter_type VARCHAR(50),                       -- Original type value
-    
-    -- Date/Time Attributes
+    -- ========================================================================
+    -- DENORMALIZED DATE ATTRIBUTES (eliminates dim_date join)
+    -- ========================================================================
     encounter_date DATETIME NOT NULL,                 -- Original datetime
     discharge_date DATETIME,                          -- Original datetime
+    encounter_year INT NOT NULL,                      -- DENORMALIZED from dim_date
+    encounter_month INT NOT NULL,                     -- DENORMALIZED: 1-12
+    encounter_month_name VARCHAR(20),                 -- DENORMALIZED: 'January', etc.
+    encounter_quarter INT,                            -- DENORMALIZED: 1-4
+    encounter_day_of_week INT,                        -- DENORMALIZED: 1-7
+    is_weekend BOOLEAN,                               -- DENORMALIZED from dim_date
     
-    -- Pre-Aggregated Metrics
+    -- ========================================================================
+    -- DENORMALIZED DIMENSION ATTRIBUTES (eliminates dimension joins)
+    -- ========================================================================
+    -- Specialty (eliminates dim_specialty join)
+    specialty_name VARCHAR(100) NOT NULL,             -- DENORMALIZED
+    specialty_code VARCHAR(10),                       -- DENORMALIZED
+    
+    -- Department (eliminates dim_department join)
+    department_name VARCHAR(100),                     -- DENORMALIZED
+    
+    -- Provider (eliminates dim_provider join for common attributes)
+    provider_name VARCHAR(200),                       -- DENORMALIZED (full name)
+    
+    -- Encounter Type (degenerate dimension - no separate table needed)
+    encounter_type VARCHAR(50) NOT NULL,              -- 'Outpatient', 'Inpatient', 'Emergency'
+    is_inpatient BOOLEAN DEFAULT FALSE,               -- DENORMALIZED flag
+    
+    -- Primary Diagnosis (eliminates bridge join for primary diagnosis)
+    primary_icd10_code VARCHAR(10),                   -- DENORMALIZED
+    primary_icd10_description VARCHAR(200),           -- DENORMALIZED
+    
+    -- ========================================================================
+    -- PRE-AGGREGATED METRICS (eliminates COUNT/SUM from bridge tables)
+    -- ========================================================================
     diagnosis_count INT DEFAULT 0,                    -- Count of diagnoses
     procedure_count INT DEFAULT 0,                    -- Count of procedures
-    primary_diagnosis_key INT,                        -- FK to dim_diagnosis (primary)
     
-    -- Billing Metrics (pre-aggregated from billing table)
+    -- Billing Metrics (eliminates billing table join)
     total_claim_amount DECIMAL(12, 2) DEFAULT 0,      -- Sum of claims
     total_allowed_amount DECIMAL(12, 2) DEFAULT 0,    -- Sum of allowed amounts
     claim_count INT DEFAULT 0,                        -- Number of claims
     
-    -- Derived Metrics
+    -- ========================================================================
+    -- PRE-COMPUTED DERIVED METRICS (eliminates complex calculations)
+    -- ========================================================================
     length_of_stay_hours INT,                         -- Hours between dates
+    length_of_stay_days INT,                          -- Days between dates
     is_readmission BOOLEAN DEFAULT FALSE,             -- 30-day readmission flag
+    days_since_last_visit INT,                        -- For readmission analysis
     
-    -- Foreign Key Constraints
+    -- ========================================================================
+    -- FOREIGN KEY CONSTRAINTS (for referential integrity)
+    -- ========================================================================
     FOREIGN KEY (encounter_date_key) REFERENCES dim_date(date_key),
     FOREIGN KEY (discharge_date_key) REFERENCES dim_date(date_key),
     FOREIGN KEY (patient_key) REFERENCES dim_patient(patient_key),
@@ -217,13 +258,27 @@ CREATE TABLE fact_encounters (
     FOREIGN KEY (specialty_key) REFERENCES dim_specialty(specialty_key),
     FOREIGN KEY (primary_diagnosis_key) REFERENCES dim_diagnosis(diagnosis_key),
     
-    -- Indexes for Common Query Patterns
-    INDEX idx_fact_enc_date (encounter_date_key),
+    -- ========================================================================
+    -- INDEXES FOR COMMON QUERY PATTERNS
+    -- ========================================================================
+    -- Date-based queries (zero-join)
+    INDEX idx_fact_year_month (encounter_year, encounter_month),
+    INDEX idx_fact_quarter (encounter_year, encounter_quarter),
+    
+    -- Specialty-based queries (zero-join)
+    INDEX idx_fact_specialty_name (specialty_name),
+    
+    -- Combined indexes for common GROUP BY patterns
+    INDEX idx_fact_specialty_year_month (specialty_name, encounter_year, encounter_month),
+    INDEX idx_fact_type_specialty (encounter_type, specialty_name),
+    
+    -- Readmission queries
+    INDEX idx_fact_readmission (is_readmission, is_inpatient),
+    
+    -- Legacy FK indexes (for drill-through queries)
+    INDEX idx_fact_enc_date_key (encounter_date_key),
     INDEX idx_fact_enc_patient (patient_key),
-    INDEX idx_fact_enc_provider (provider_key),
-    INDEX idx_fact_enc_specialty (specialty_key),
-    INDEX idx_fact_enc_type (encounter_type_key),
-    INDEX idx_fact_enc_readmit (is_readmission)
+    INDEX idx_fact_enc_provider (provider_key)
 );
 
 -- ============================================================================

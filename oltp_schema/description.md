@@ -110,25 +110,58 @@ erDiagram
 
 ## Table Descriptions
 
-### Core Entity Tables (10,000 rows each)
+### Lookup/Reference Tables (Fixed Size)
 
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `patients` | Patient demographics | patient_id, first_name, last_name, date_of_birth, gender, mrn |
-| `providers` | Healthcare providers | provider_id, first_name, last_name, credential, specialty_id, department_id |
-| `specialties` | Medical specialties | specialty_id, specialty_name, specialty_code |
-| `departments` | Hospital departments | department_id, department_name, floor, capacity |
-| `diagnoses` | ICD-10 codes | diagnosis_id, icd10_code, icd10_description |
-| `procedures` | CPT codes | procedure_id, cpt_code, cpt_description |
+These tables represent **master data** with a small, fixed number of rows. They are referenced by the larger transactional tables via foreign keys.
 
-### Transactional Tables (10,000 rows each)
+| Table | Rows | Purpose | Key Columns |
+|-------|------|---------|-------------|
+| `specialties` | 25 | Medical specialties | specialty_id, specialty_name, specialty_code |
+| `departments` | 20 | Hospital departments | department_id, department_name, floor, capacity |
+| `diagnoses` | 72 | ICD-10 codes | diagnosis_id, icd10_code, icd10_description |
+| `procedures` | 60 | CPT codes | procedure_id, cpt_code, cpt_description |
 
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `encounters` | Patient visits | encounter_id, patient_id, provider_id, encounter_type, dates |
-| `encounter_diagnoses` | Diagnoses per visit | encounter_diagnosis_id, encounter_id, diagnosis_id, sequence |
-| `encounter_procedures` | Procedures per visit | encounter_procedure_id, encounter_id, procedure_id, date |
-| `billing` | Claims data | billing_id, encounter_id, amounts, status |
+### Entity Tables (Growing Over Time)
+
+These tables represent core business entities that grow as new data is added.
+
+| Table | Rows | Purpose | Key Columns |
+|-------|------|---------|-------------|
+| `patients` | 10,000 | Patient demographics | patient_id, first_name, last_name, date_of_birth, gender, mrn |
+| `providers` | 500 | Healthcare providers | provider_id, first_name, last_name, credential, specialty_id, department_id |
+
+### Transactional Tables (High Volume)
+
+These tables capture the day-to-day operations of the healthcare system.
+
+| Table | Rows | Purpose | Key Columns |
+|-------|------|---------|-------------|
+| `encounters` | 10,000 | Patient visits | encounter_id, patient_id, provider_id, encounter_type, dates |
+| `encounter_diagnoses` | ~25,000 | Diagnoses per visit (2-3 avg) | encounter_diagnosis_id, encounter_id, diagnosis_id, sequence |
+| `encounter_procedures` | ~14,000 | Procedures per visit (1-2 avg) | encounter_procedure_id, encounter_id, procedure_id, date |
+| `billing` | 10,000 | Claims data | billing_id, encounter_id, amounts, status |
+
+---
+
+## Data Distribution
+
+The OLTP data follows realistic healthcare patterns:
+
+### Encounter Types
+- **Outpatient**: 60% (routine visits, follow-ups)
+- **Inpatient**: 25% (hospital admissions)
+- **Emergency**: 15% (ER visits)
+
+### Diagnoses per Encounter
+- 1 diagnosis: 15%
+- 2 diagnoses: 40%
+- 3 diagnoses: 30%
+- 4+ diagnoses: 15%
+
+### Billing Amounts
+- Outpatient: $100 - $2,000
+- Emergency: $500 - $10,000
+- Inpatient: $5,000 - $100,000
 
 ---
 
@@ -137,8 +170,7 @@ erDiagram
 1. **No Data Duplication**: Patient/provider names stored once
 2. **Easy Updates**: Change a specialty name in one place
 3. **Referential Integrity**: Foreign keys prevent orphaned records
-
----
+4. **Storage Efficiency**: Lookup tables are small; only IDs are stored in transactional tables
 
 ---
 
@@ -146,17 +178,33 @@ erDiagram
 
 SQL INSERT statements for each table are located in `data/oltp/`:
 
-| File | Table | Rows |
-|------|-------|------|
-| `patients.sql` | patients | 10,000 |
-| `specialties.sql` | specialties | 10,000 |
-| `departments.sql` | departments | 10,000 |
-| `providers.sql` | providers | 10,000 |
-| `diagnoses.sql` | diagnoses | 10,000 |
-| `procedures.sql` | procedures | 10,000 |
-| `encounters.sql` | encounters | 10,000 |
-| `encounter_diagnoses.sql` | encounter_diagnoses | 10,000 |
-| `encounter_procedures.sql` | encounter_procedures | 10,000 |
-| `billing.sql` | billing | 10,000 |
+| File | Table | Rows | Type |
+|------|-------|------|------|
+| `specialties.sql` | specialties | 25 | Lookup |
+| `departments.sql` | departments | 20 | Lookup |
+| `diagnoses.sql` | diagnoses | 72 | Reference |
+| `procedures.sql` | procedures | 60 | Reference |
+| `patients.sql` | patients | 10,000 | Entity |
+| `providers.sql` | providers | 500 | Entity |
+| `encounters.sql` | encounters | 10,000 | Transaction |
+| `encounter_diagnoses.sql` | encounter_diagnoses | ~25,000 | Junction |
+| `encounter_procedures.sql` | encounter_procedures | ~14,000 | Junction |
+| `billing.sql` | billing | 10,000 | Transaction |
 
-**Total: 100,000 rows across 10 tables**
+**Total: ~70,000 rows across 10 tables**
+
+---
+
+## Data Generation
+
+The data is generated using `scripts/generate_realistic_data.py` which creates:
+
+- **Realistic ICD-10 codes** across 10 medical categories
+- **Realistic CPT codes** for E&M visits, surgeries, radiology, lab tests
+- **Weighted distributions** for encounter types and claim statuses
+- **Proper referential integrity** with all foreign keys valid
+
+To regenerate the data:
+```bash
+python scripts/generate_realistic_data.py
+```
