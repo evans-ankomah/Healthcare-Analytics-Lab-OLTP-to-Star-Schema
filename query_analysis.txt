@@ -239,4 +239,3 @@ The star schema's denormalization eliminates joins entirely,
 which optimized SQL patterns cannot achieve in OLTP.
 
 ================================================================================
-
