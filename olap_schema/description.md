@@ -140,12 +140,14 @@ erDiagram
 
 ## Performance Comparison
 
-| Query | OLTP | Star (FK Joins) | Star (Zero-Join) | Speedup |
-|-------|------|-----------------|------------------|---------|
-| Q1: Monthly by Specialty | 3 joins, ~1.2s | 2 joins, ~0.10s | 0 joins, ~0.05s | **24x** |
-| Q2: Diagnosis-Procedure | 4 joins, ~3.5s | 3 joins, ~0.20s | 0 joins, ~0.05s | **70x** |
-| Q3: Readmission Rate | 3+self, ~5.0s | 1 join, ~0.05s | 0 joins, ~0.02s | **250x** |
-| Q4: Revenue by Specialty | 4 joins, ~1.8s | 2 joins, ~0.10s | 0 joins, ~0.03s | **60x** |
+| Query | OLTP | Star Schema (Zero-Join) | Speedup |
+|-------|------|-------------------------|---------|
+| Q1: Monthly by Specialty | 2 joins, ~0.046s | 0 joins, ~0.031s | **1.5x** |
+| Q2: Diagnosis-Procedure | 3 joins, ~0.218s | 0 joins, ~0.047s | **4.6x** |
+| Q3: Readmission Rate | 2 joins, ~0.047s | 0 joins, ~0.025s | **1.9x** |
+| Q4: Revenue by Specialty | 3 joins, ~0.063s | 0 joins, ~0.032s | **2.0x** |
+
+**Overall**: OLTP ~0.37s → Star Schema ~0.14s = **~2.8x faster**
 
 ---
 
