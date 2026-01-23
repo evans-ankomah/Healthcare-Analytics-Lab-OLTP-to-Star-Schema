@@ -53,11 +53,11 @@ ORDER BY encounter_year, encounter_month, specialty_name;
 PERFORMANCE COMPARISON:
 --------------------------------------------------------------------------------
 
-| Metric              | OLTP          | Star (Before) | Star (Now)     |
-|---------------------|---------------|---------------|----------------|
-| Tables joined       | 3             | 2             | 0              |
-| Execution time      | ~1.2s         | ~0.10s        | ~0.05s         |
-| Index used          | None          | FK indexes    | Composite idx  |
+| Metric              | OLTP          | Star Schema   |
+|---------------------|---------------|---------------|
+| Tables joined       | 2             | 0             |
+| Execution time      | ~0.046s       | ~0.031s       |
+| Index used          | None          | FK indexes    | 
 
 --------------------------------------------------------------------------------
 WHY IT'S FASTER:
@@ -134,8 +134,8 @@ PERFORMANCE COMPARISON:
 
 | Metric              | OLTP          | Star (Primary)| Star (Details) |
 |---------------------|---------------|---------------|----------------|
-| Tables joined       | 4             | 0             | 2              |
-| Execution time      | ~3.5s         | ~0.05s        | ~0.20s         |
+| Tables joined       | 3             | 0             | 2              |
+| Execution time      | ~0.063s       | ~0.047s       | ~0.20s         |
 | Use case            | All diagnoses | Primary only  | Full details   |
 
 

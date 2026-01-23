@@ -40,7 +40,7 @@ For each month and specialty, show total encounters and unique patients
 by encounter type.
 
 --------------------------------------------------------------------------------
-OPTIMIZED SQL (2 JOINS - minimal possible):
+OPTIMIZED SQL (2 JOINS ):
 --------------------------------------------------------------------------------
 
 SELECT 
@@ -51,14 +51,14 @@ SELECT
     COUNT(*) AS total_encounters,
     COUNT(DISTINCT e.patient_id) AS unique_patients
 FROM encounters e
-    INNER JOIN providers p USING (provider_id)
-    INNER JOIN specialties s USING (specialty_id)
-GROUP BY 1, 2, 3, 4
-ORDER BY 1, 2, 3;
-
--- USING clause is cleaner than ON when column names match
--- GROUP BY 1,2,3,4 is shorter (positional reference)
--- INNER JOIN is explicit about join type
+JOIN providers p ON e.provider_id = p.provider_id
+JOIN specialties s ON p.specialty_id = s.specialty_id
+GROUP BY 
+    YEAR(e.encounter_date),
+    MONTH(e.encounter_date),
+    s.specialty_name,
+    e.encounter_type
+ORDER BY year, month, specialty_name;
 
 --------------------------------------------------------------------------------
 ANALYSIS:
@@ -73,7 +73,7 @@ WHY 2 JOINS ARE REQUIRED:
 - Providers only has specialty_id (not specialty_name)
 - Must traverse: encounters → providers → specialties
 
-There is NO WAY to reduce joins without denormalizing the schema.
+
 
 
 ================================================================================
