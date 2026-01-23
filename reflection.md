@@ -193,3 +193,4 @@ This project demonstrates that **aggressive denormalization** is the key to high
 
 > [!NOTE]
 > Performance improvements scale significantly with larger datasets (millions of rows).
+
