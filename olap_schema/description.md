@@ -22,174 +22,56 @@ This enables:
 
 ```mermaid
 erDiagram
-    %% ===========================================
-    %% DIMENSION TO FACT RELATIONSHIPS
-    %% ===========================================
-    dim_date ||--o{ fact_encounters : "encounter_date_key"
-    dim_date ||--o{ fact_encounters : "discharge_date_key"
-    dim_patient ||--o{ fact_encounters : "patient_key"
-    dim_provider ||--o{ fact_encounters : "provider_key"
-    dim_department ||--o{ fact_encounters : "department_key"
-    dim_encounter_type ||--o{ fact_encounters : "encounter_type_key"
-    dim_specialty ||--o{ fact_encounters : "specialty_key"
-    dim_diagnosis ||--o{ fact_encounters : "primary_diagnosis_key"
+    dim_date ||--o{ fact_encounters : "encounter_date"
+    dim_patient ||--o{ fact_encounters : "has"
+    dim_provider ||--o{ fact_encounters : "conducts"
+    dim_specialty ||--o{ fact_encounters : "for"
     
-    %% ===========================================
-    %% BRIDGE TABLE RELATIONSHIPS (Many-to-Many)
-    %% ===========================================
-    fact_encounters ||--o{ bridge_encounter_diagnoses : "encounter_key"
-    fact_encounters ||--o{ bridge_encounter_procedures : "encounter_key"
-    dim_diagnosis ||--o{ bridge_encounter_diagnoses : "diagnosis_key"
-    dim_procedure ||--o{ bridge_encounter_procedures : "procedure_key"
+    fact_encounters ||--o{ bridge_encounter_diagnoses : "has"
+    fact_encounters ||--o{ bridge_encounter_procedures : "has"
     
-    %% ===========================================
-    %% DIMENSION-TO-DIMENSION RELATIONSHIPS
-    %% ===========================================
-    dim_specialty ||--o{ dim_provider : "specialty_key"
-    dim_department ||--o{ dim_provider : "department_key"
+    dim_diagnosis ||--o{ bridge_encounter_diagnoses : "links"
+    dim_procedure ||--o{ bridge_encounter_procedures : "links"
 
-    %% ===========================================
-    %% FACT TABLE (Central)
-    %% ===========================================
     fact_encounters {
         int encounter_key PK
-        int encounter_id UK
-        int encounter_date_key FK
-        int discharge_date_key FK
-        int patient_key FK
-        int provider_key FK
-        int department_key FK
-        int encounter_type_key FK
-        int specialty_key FK
-        int primary_diagnosis_key FK
-        datetime encounter_date
-        datetime discharge_date
+        int encounter_id
         int encounter_year "DENORMALIZED"
         int encounter_month "DENORMALIZED"
-        varchar encounter_month_name "DENORMALIZED"
-        int encounter_quarter "DENORMALIZED"
-        int encounter_day_of_week "DENORMALIZED"
-        boolean is_weekend "DENORMALIZED"
         varchar specialty_name "DENORMALIZED"
-        varchar specialty_code "DENORMALIZED"
         varchar department_name "DENORMALIZED"
-        varchar provider_name "DENORMALIZED"
         varchar encounter_type "DEGENERATE"
         boolean is_inpatient "DENORMALIZED"
-        varchar primary_icd10_code "DENORMALIZED"
-        varchar primary_icd10_description "DENORMALIZED"
+        boolean is_readmission "PRE-COMPUTED"
+        decimal total_allowed_amount "PRE-AGGREGATED"
         int diagnosis_count "PRE-AGGREGATED"
         int procedure_count "PRE-AGGREGATED"
-        decimal total_claim_amount "PRE-AGGREGATED"
-        decimal total_allowed_amount "PRE-AGGREGATED"
-        int claim_count "PRE-AGGREGATED"
-        int length_of_stay_hours "PRE-COMPUTED"
-        int length_of_stay_days "PRE-COMPUTED"
-        boolean is_readmission "PRE-COMPUTED"
-        int days_since_last_visit "PRE-COMPUTED"
     }
     
-    %% ===========================================
-    %% DIMENSION TABLES
-    %% ===========================================
     dim_date {
         int date_key PK
-        date calendar_date UK
+        date calendar_date
         int year
-        int quarter
         int month
         varchar month_name
-        int week_of_year
-        int day_of_month
-        int day_of_week
-        varchar day_name
-        boolean is_weekend
-        int fiscal_year
-        int fiscal_quarter
     }
     
     dim_patient {
         int patient_key PK
-        int patient_id UK
-        varchar first_name
-        varchar last_name
+        int patient_id
         varchar full_name
-        date date_of_birth
-        int age
         varchar age_group
-        char gender
-        varchar gender_desc
-        varchar mrn UK
     }
     
     dim_provider {
         int provider_key PK
-        int provider_id UK
-        varchar first_name
-        varchar last_name
         varchar full_name
-        varchar credential
-        int specialty_key FK
-        int specialty_id
         varchar specialty_name "DENORMALIZED"
-        varchar specialty_code "DENORMALIZED"
-        int department_key FK
-        int department_id
-        varchar department_name "DENORMALIZED"
     }
     
     dim_specialty {
         int specialty_key PK
-        int specialty_id UK
         varchar specialty_name
-        varchar specialty_code
-    }
-    
-    dim_department {
-        int department_key PK
-        int department_id UK
-        varchar department_name
-        int floor
-        int capacity
-    }
-    
-    dim_encounter_type {
-        int encounter_type_key PK
-        varchar type_code UK
-        varchar type_name
-        boolean is_inpatient
-        decimal avg_los_hours
-    }
-    
-    dim_diagnosis {
-        int diagnosis_key PK
-        int diagnosis_id UK
-        varchar icd10_code
-        varchar icd10_description
-    }
-    
-    dim_procedure {
-        int procedure_key PK
-        int procedure_id UK
-        varchar cpt_code
-        varchar cpt_description
-    }
-    
-    %% ===========================================
-    %% BRIDGE TABLES
-    %% ===========================================
-    bridge_encounter_diagnoses {
-        int bridge_id PK
-        int encounter_key FK
-        int diagnosis_key FK
-        int diagnosis_sequence
-    }
-    
-    bridge_encounter_procedures {
-        int bridge_id PK
-        int encounter_key FK
-        int procedure_key FK
-        date procedure_date
     }
 ```
 
