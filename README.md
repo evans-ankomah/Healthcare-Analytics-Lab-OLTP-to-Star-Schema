@@ -210,19 +210,23 @@ python generate_olap_data.py
 Execute queries from `star_schema_queries.txt` and compare performance:
 
 ```sql
--- Same query on Star Schema (only 2 JOINs)
+-- Same query on Star Schema (Zero JOINs)
 SELECT 
-    d.year,
-    d.month,
-    s.specialty_name,
-    et.encounter_type_name,
-    SUM(f.encounter_count) AS total_encounters,
-    COUNT(DISTINCT f.patient_key) AS unique_patients
-FROM fact_encounters f
-JOIN dim_date d ON f.date_key = d.date_key
-JOIN dim_specialty s ON f.specialty_key = s.specialty_key
-JOIN dim_encounter_type et ON f.encounter_type_key = et.encounter_type_key
-GROUP BY d.year, d.month, s.specialty_name, et.encounter_type_name;
+    encounter_year AS year,
+    encounter_month AS month,
+    encounter_month_name AS month_name,
+    specialty_name,
+    encounter_type,
+    COUNT(*) AS total_encounters,
+    COUNT(DISTINCT patient_key) AS unique_patients
+FROM fact_encounters
+GROUP BY 
+    encounter_year,
+    encounter_month,
+    encounter_month_name,
+    specialty_name,
+    encounter_type
+ORDER BY encounter_year, encounter_month, specialty_name;
 ```
 
 ---
