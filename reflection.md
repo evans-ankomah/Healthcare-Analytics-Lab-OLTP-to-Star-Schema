@@ -56,9 +56,9 @@ No JOINs needed!
 
 ---
 
-## 2. Trade-offs: What Did We Gain? What Did We Lose?
+## 2. Trade-offs: What Did I Gain? What Did I Lose?
 
-### What We Gave Up
+### What I Gave Up
 
 | Trade-off | Impact | Mitigation |
 |-----------|--------|------------|
@@ -67,7 +67,7 @@ No JOINs needed!
 | **ETL Complexity** | Must denormalize during load | One-time setup |
 | **Update Latency** | Daily ETL refresh | Acceptable for analytics |
 
-### What We Gained
+### What I Gained
 
 | Benefit | Quantified Impact |
 |---------|-------------------|
@@ -189,7 +189,7 @@ Zero-join queries handle 80% of analytical needs. Use joins for:
 
 ---
 
-This project demonstrates that **aggressive denormalization** is the key to high-performance analytics. By storing commonly-queried attributes directly in the fact table, we achieve zero-join queries that are ~2.8x faster than normalized OLTP.
+This project demonstrates that **aggressive denormalization** is the key to high-performance analytics. By storing commonly-queried attributes directly in the fact table, I achieved zero-join queries that are ~2.8x faster than normalized OLTP.
 
 > [!NOTE]
 > Performance improvements scale significantly with larger datasets (millions of rows).

@@ -275,7 +275,7 @@ Create indexes that match common GROUP BY patterns:
 | idx_fact_readmission          | (is_readmission, is_inpatient)       |
 
 These indexes make zero-join queries even faster by supporting the GROUP BY
-and WHERE clause patterns we use most often.
+and WHERE clause patterns I use most often.
 
 
 ================================================================================
