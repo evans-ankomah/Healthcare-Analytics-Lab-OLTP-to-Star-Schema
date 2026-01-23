@@ -16,7 +16,7 @@ The fact table (fact_encounters) contains DENORMALIZED attributes:
 - is_inpatient, is_readmission (pre-computed flags)
 - total_claim_amount, total_allowed_amount (from billing)
 
-This enables most analytical queries to run with ZERO JOINS!
+
 
 ================================================================================
 QUERY 1: Monthly Encounters by Specialty
@@ -27,7 +27,7 @@ For each month and specialty, show total encounters and unique patients
 by encounter type.
 
 --------------------------------------------------------------------------------
-ZERO-JOIN QUERY (OPTIMAL):
+ZERO-JOIN QUERY:
 --------------------------------------------------------------------------------
 
 SELECT 
@@ -80,7 +80,7 @@ What are the most common diagnosis-procedure combinations?
 Show the ICD code, procedure code, and encounter count.
 
 --------------------------------------------------------------------------------
-ZERO-JOIN QUERY (Primary Diagnosis Only):
+ZERO-JOIN QUERY:
 --------------------------------------------------------------------------------
 
 -- For PRIMARY diagnosis + any procedure count
@@ -101,7 +101,7 @@ GROUP BY
 ORDER BY encounter_count DESC
 LIMIT 20;
 
--- ZERO JOINS for primary diagnosis analysis!
+-- ESTIMATED TIME: ~0.031s
 
 --------------------------------------------------------------------------------
 ONE-JOIN QUERY (With Procedure Details):
@@ -126,7 +126,7 @@ GROUP BY
 ORDER BY pair_count DESC
 LIMIT 20;
 
--- 2 JOINS required only when you need procedure DETAILS
+-- ESTIMATED TIME: ~0.062s
 
 --------------------------------------------------------------------------------
 PERFORMANCE COMPARISON:
@@ -175,7 +175,7 @@ PERFORMANCE COMPARISON:
 | Metric              | OLTP          | Star (Before) | Star (Now)     |
 |---------------------|---------------|---------------|----------------|
 | Tables joined       | 3 + self-join | 1             | 0              |
-| Execution time      | ~5.0s         | ~0.05s        | ~0.02s         |
+| Execution time      | ~5.0s         | ~0.026s        | ~0.025s         |
 | Query complexity    | Complex CTEs  | Simple        | Simplest       |
 
 --------------------------------------------------------------------------------
@@ -226,11 +226,11 @@ ORDER BY encounter_year, encounter_month, total_allowed DESC;
 PERFORMANCE COMPARISON:
 --------------------------------------------------------------------------------
 
-| Metric              | OLTP          | Star (Before) | Star (Now)     |
-|---------------------|---------------|---------------|----------------|
-| Tables joined       | 4             | 2             | 0              |
-| Execution time      | ~1.8s         | ~0.10s        | ~0.03s         |
-| Billing table join  | Required      | Eliminated    | Eliminated     |
+| Metric              | OLTP          | Star           |
+|---------------------|---------------|----------------|
+| Tables joined       | 4             | 0              |
+| Execution time      | ~1.8s         | ~0.032s        |
+| Billing table join  | Required      | Eliminated     |
 
 --------------------------------------------------------------------------------
 WHY IT'S FASTER:
@@ -250,18 +250,18 @@ SUMMARY: PERFORMANCE IMPROVEMENTS
 
 | Query | OLTP Joins | OLTP Time | Star Joins | Star Time | Speedup  |
 |-------|------------|-----------|------------|-----------|----------|
-| Q1    | 3          | ~1.2s     | 0          | ~0.05s    | 24x      |
-| Q2    | 4          | ~3.5s     | 0 or 2     | ~0.05s    | 70x      |
-| Q3    | 3+self     | ~5.0s     | 0          | ~0.02s    | 250x     |
-| Q4    | 4          | ~1.8s     | 0          | ~0.03s    | 60x      |
+| Q1    | 2          | ~0.046s   | 0          | ~0.031s   | 1.5x     |
+| Q2    | 3          | ~0.218s   | 0          | ~0.047s   | 4.6x     |
+| Q3    | 2          | ~0.047s   | 0          | ~0.025s   | 1.9x     |
+| Q4    | 3          | ~0.063s   | 0          | ~0.032s   | 2.0x     |
 
 --------------------------------------------------------------------------------
 TOTAL IMPROVEMENT SUMMARY:
 --------------------------------------------------------------------------------
 
-Original (OLTP) Total Time:    ~11.5 seconds
-Optimized (Star) Total Time:   ~0.15 seconds
-Overall Speedup:               ~77x faster
+Original (OLTP) Total Time:    ~0.374 seconds
+Optimized (Star) Total Time:   ~0.135 seconds
+Overall Speedup:               ~2.8x faster
 
 --------------------------------------------------------------------------------
 KEY OPTIMIZATION TECHNIQUES:

@@ -265,9 +265,22 @@ The OLTP schema uses a **realistic data distribution**:
 |--------|-------------------|-------------------|
 | **Purpose** | Transactional operations | Analytical queries |
 | **Tables** | 10 normalized tables | 8 dimensions + 1 fact + 2 bridges |
-| **Typical Joins** | 4-6 per query | 2-3 per query |
-| **Query Speed** | Slower for analytics | ~10x faster |
+| **Typical Joins** | 2-3 per query | 0 per query |
 | **Data Redundancy** | Minimal | Controlled duplication |
+
+### Performance Results
+
+| Query | OLTP Joins | OLTP Time | Star Joins | Star Time | Speedup |
+|-------|------------|-----------|------------|-----------|---------|
+| Q1: Monthly by Specialty | 2 | ~0.046s | 0 | ~0.031s | 1.5x |
+| Q2: Diagnosis-Procedure | 3 | ~0.218s | 0 | ~0.047s | 4.6x |
+| Q3: Readmission Rate | 2 | ~0.047s | 0 | ~0.025s | 1.9x |
+| Q4: Revenue by Specialty | 3 | ~0.063s | 0 | ~0.032s | 2.0x |
+
+**Overall**: OLTP ~0.37s → Star Schema ~0.14s = **~2.8x faster**
+
+> [!NOTE]
+> Performance improvements scale significantly with larger datasets (10M+ rows).
 
 ---
 

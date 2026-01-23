@@ -4,31 +4,6 @@ QUERY ANALYSIS - OLTP Performance Bottlenecks
 Healthcare Analytics Lab: OLTP to Star Schema
 Part 2: Find the Performance Problem
 
-This document analyzes 4 business questions using the normalized OLTP schema,
-showing both the STANDARD approach and OPTIMIZED versions using efficient
-SQL patterns (window functions, proper indexing, etc.).
-
-NOTE: Data volumes:
-- Lookup: specialties (25), departments (20)
-- Reference: diagnoses (72), procedures (60)
-- Entity: patients (10,000), providers (500)
-- Transaction: encounters (10,000), billing (10,000)
-- Junction: encounter_diagnoses (~25,000), encounter_procedures (~14,000)
-
-================================================================================
-RECOMMENDED INDEXES FOR OLTP OPTIMIZATION
-================================================================================
-
--- These indexes significantly improve OLTP analytical query performance
-
-CREATE INDEX idx_enc_provider ON encounters(provider_id);
-CREATE INDEX idx_enc_date ON encounters(encounter_date);
-CREATE INDEX idx_enc_patient_date ON encounters(patient_id, encounter_date);
-CREATE INDEX idx_enc_type ON encounters(encounter_type);
-CREATE INDEX idx_provider_specialty ON providers(specialty_id);
-CREATE INDEX idx_ed_encounter ON encounter_diagnoses(encounter_id);
-CREATE INDEX idx_ep_encounter ON encounter_procedures(encounter_id);
-CREATE INDEX idx_billing_encounter ON billing(encounter_id);
 
 
 ================================================================================
@@ -66,7 +41,7 @@ ANALYSIS:
 
 Tables joined: 3 (encounters → providers → specialties)
 Number of joins: 2 (MINIMUM POSSIBLE for this query)
-Estimated time: ~1.2s
+Estimated time: ~0.046s
 
 WHY 2 JOINS ARE REQUIRED:
 - Encounters only has provider_id (not specialty_id)
@@ -85,10 +60,9 @@ What are the most common diagnosis-procedure combinations?
 Show the ICD code, procedure code, and encounter count.
 
 --------------------------------------------------------------------------------
-OPTIMIZED SQL (Using EXISTS to reduce row explosion):
+OPTIMIZED SQL 
 --------------------------------------------------------------------------------
 
--- Method 1: EXISTS pattern (avoids Cartesian product)
 SELECT 
     d.icd10_code,
     d.icd10_description,
@@ -104,45 +78,18 @@ ORDER BY encounter_count DESC
 LIMIT 20;
 
 --------------------------------------------------------------------------------
-ALTERNATIVE: CTE-based approach (clearer logic):
---------------------------------------------------------------------------------
-
-WITH diagnosis_encounters AS (
-    SELECT ed.encounter_id, d.icd10_code, d.icd10_description
-    FROM encounter_diagnoses ed
-    INNER JOIN diagnoses d USING (diagnosis_id)
-),
-procedure_encounters AS (
-    SELECT ep.encounter_id, p.cpt_code, p.cpt_description
-    FROM encounter_procedures ep
-    INNER JOIN procedures p USING (procedure_id)
-)
-SELECT 
-    de.icd10_code,
-    de.icd10_description,
-    pe.cpt_code,
-    pe.cpt_description,
-    COUNT(DISTINCT de.encounter_id) AS encounter_count
-FROM diagnosis_encounters de
-    INNER JOIN procedure_encounters pe USING (encounter_id)
-GROUP BY 1, 2, 3, 4
-ORDER BY encounter_count DESC
-LIMIT 20;
-
---------------------------------------------------------------------------------
 ANALYSIS:
 --------------------------------------------------------------------------------
 
 Tables joined: 4 (encounter_diagnoses, diagnoses, encounter_procedures, procedures)
 Number of joins: 3 (MINIMUM POSSIBLE)
-Estimated time: ~3.5s
+Estimated time: 0.218s
 
 WHY ROW EXPLOSION OCCURS:
 - Each encounter can have multiple diagnoses (avg 2.5)
 - Each encounter can have multiple procedures (avg 1.4)
-- Joining on encounter_id: 2.5 × 1.4 = 3.5 rows per encounter
-
-This is UNAVOIDABLE in OLTP without pre-aggregation.
+- Row explosion occurs because joining two many-to-many tables 
+  multiplies rows for every possible combination of related records.
 
 
 ================================================================================
@@ -154,7 +101,7 @@ Which specialty has the highest readmission rate?
 (Definition: inpatient discharge, then return within 30 days)
 
 --------------------------------------------------------------------------------
-OPTIMIZED SQL (WINDOW FUNCTION - much faster than self-join!):
+QUERY
 --------------------------------------------------------------------------------
 
 WITH inpatient_with_prev AS (
@@ -201,13 +148,7 @@ ANALYSIS:
 
 Tables joined: 3 (encounters, providers, specialties)
 Number of joins: 2 (down from 3 + self-join!)
-Estimated time: ~1.5s (down from ~5.0s)
-
-WHY WINDOW FUNCTION IS BETTER:
-- LAG() finds previous row without self-join
-- Single scan through encounters table
-- O(n) instead of O(n²) complexity
-- ~3x faster than self-join approach
+Estimated time: ~0.047s 
 
 
 ================================================================================
@@ -236,48 +177,20 @@ FROM billing b
     INNER JOIN specialties s USING (specialty_id)
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, total_allowed DESC;
-
---------------------------------------------------------------------------------
-ALTERNATIVE: CTE for clarity:
---------------------------------------------------------------------------------
-
-WITH specialty_billing AS (
-    SELECT 
-        b.claim_date,
-        b.claim_amount,
-        b.allowed_amount,
-        s.specialty_name
-    FROM billing b
-        INNER JOIN encounters e USING (encounter_id)
-        INNER JOIN providers p USING (provider_id)
-        INNER JOIN specialties s USING (specialty_id)
-)
-SELECT 
-    YEAR(claim_date) AS year,
-    MONTH(claim_date) AS month,
-    specialty_name,
-    COUNT(*) AS claim_count,
-    SUM(claim_amount) AS total_claimed,
-    SUM(allowed_amount) AS total_allowed,
-    ROUND(AVG(allowed_amount), 2) AS avg_allowed
-FROM specialty_billing
-GROUP BY 1, 2, 3
-ORDER BY 1, 2, total_allowed DESC;
-
 --------------------------------------------------------------------------------
 ANALYSIS:
 --------------------------------------------------------------------------------
 
 Tables joined: 4 (billing, encounters, providers, specialties)
 Number of joins: 3 (MINIMUM POSSIBLE)
-Estimated time: ~1.8s
+Estimated time: ~0.063s
 
 WHY 3 JOINS ARE REQUIRED:
 - billing → encounters (to get provider_id)
 - encounters → providers (to get specialty_id)  
 - providers → specialties (to get specialty_name)
 
-This chain is UNAVOIDABLE in normalized OLTP.
+
 
 
 ================================================================================
