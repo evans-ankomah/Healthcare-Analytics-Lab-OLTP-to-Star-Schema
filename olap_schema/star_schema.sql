@@ -45,25 +45,38 @@ CREATE TABLE dim_date (
 );
 
 -- ============================================================================
--- DIM_PATIENT
+-- DIM_PATIENT (SCD Type 2 - Slowly Changing Dimension)
 -- ============================================================================
 -- Patient demographics with computed age groups for easier analysis.
+-- Implements SCD Type 2 for historical tracking of patient attribute changes.
+-- 
+-- SCD Type 2 tracks history by creating new rows when attributes change:
+-- - effective_date: When this version of the record became active
+-- - expiration_date: When this version was superseded (NULL = current)
+-- - is_current: Boolean flag for easy filtering of current records
 -- ============================================================================
 CREATE TABLE dim_patient (
-    patient_key INT PRIMARY KEY AUTO_INCREMENT,  -- Surrogate key
-    patient_id INT NOT NULL UNIQUE,              -- Natural key from OLTP
+    patient_key INT PRIMARY KEY AUTO_INCREMENT,  -- Surrogate key (unique per version)
+    patient_id INT NOT NULL,                     -- Natural key from OLTP (same across versions)
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     full_name VARCHAR(200),                      -- Concatenated name
     date_of_birth DATE,
-    age INT,                                     -- Current age (computed)
+    age INT,                                     -- Age at time of record creation
     age_group VARCHAR(20),                       -- Age bracket (0-17, 18-34, etc.)
     gender CHAR(1),
     gender_desc VARCHAR(10),                     -- Male/Female
-    mrn VARCHAR(20) UNIQUE,                      -- Medical Record Number
+    mrn VARCHAR(20),                             -- Medical Record Number
+    
+    -- SCD Type 2 Tracking Columns
+    effective_date DATE NOT NULL,                -- When this version became active
+    expiration_date DATE DEFAULT NULL,           -- When this version expired (NULL = current)
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,    -- TRUE = current active version
     
     INDEX idx_patient_natural (patient_id),
-    INDEX idx_patient_age_group (age_group)
+    INDEX idx_patient_age_group (age_group),
+    INDEX idx_patient_current (is_current),      -- Fast lookup for current records
+    INDEX idx_patient_effective (patient_id, effective_date)  -- Historical lookups
 );
 
 -- ============================================================================

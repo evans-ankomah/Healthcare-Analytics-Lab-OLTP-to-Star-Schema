@@ -164,13 +164,71 @@ Even with aggressive denormalization, dimension tables are maintained for:
 | Dimension | Rows | Purpose |
 |-----------|------|---------|
 | `dim_date` | ~730 | 2-year calendar with pre-computed attributes |
-| `dim_patient` | 10,000 | Patient demographics with age groups |
+| `dim_patient` | 10,000+ | Patient demographics with SCD Type 2 |
 | `dim_provider` | 500 | Provider info with denormalized specialty |
 | `dim_specialty` | 25 | Medical specialties |
 | `dim_department` | 20 | Hospital departments |
 | `dim_encounter_type` | 3 | Outpatient, Inpatient, Emergency |
 | `dim_diagnosis` | 72 | ICD-10 codes |
 | `dim_procedure` | 60 | CPT codes |
+
+---
+
+## Slowly Changing Dimension Type 2 (SCD Type 2)
+
+### What is SCD Type 2?
+
+SCD Type 2 **preserves historical data** by creating a new row when dimension attributes change, rather than overwriting the old values.
+
+### Implementation: dim_patient
+
+The `dim_patient` table implements SCD Type 2 with these tracking columns:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `effective_date` | DATE | When this version became active |
+| `expiration_date` | DATE | When this version expired (NULL = current) |
+| `is_current` | BOOLEAN | TRUE = current active version |
+
+### Example: Patient Age Group Change
+
+When a patient's age group changes from "55-64" to "65-74":
+
+| patient_key | patient_id | age_group | effective_date | expiration_date | is_current |
+|-------------|------------|-----------|----------------|-----------------|------------|
+| 100 | 1001 | 55-64 | 2020-01-01 | 2024-06-15 | FALSE |
+| 500 | 1001 | 65-74 | 2024-06-16 | NULL | TRUE |
+
+### Query Patterns
+
+**Current Records Only** (most common):
+```sql
+SELECT * FROM dim_patient WHERE is_current = TRUE;
+```
+
+**Historical Lookup** (point-in-time analysis):
+```sql
+SELECT * FROM dim_patient 
+WHERE patient_id = 1001 
+  AND '2023-05-10' BETWEEN effective_date 
+      AND COALESCE(expiration_date, '9999-12-31');
+```
+
+**Join for Historical Analysis**:
+```sql
+SELECT f.encounter_date, p.age_group
+FROM fact_encounters f
+JOIN dim_patient p ON f.patient_key = p.patient_key;
+-- Returns age_group at time of encounter (stored via surrogate key)
+```
+
+### Why SCD Type 2 for Patients?
+
+| Attribute | Why Track History? |
+|-----------|-------------------|
+| `age_group` | Patient ages over time; analysis should reflect age at encounter |
+| `gender` | Rarely changes, but should preserve if updated |
+| `address` | (If added) Track where patient lived at time of care |
 
 ---
 
