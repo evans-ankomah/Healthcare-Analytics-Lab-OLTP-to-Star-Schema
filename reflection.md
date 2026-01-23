@@ -36,12 +36,12 @@ No JOINs needed!
 
 | Query | OLTP | Star Schema | Speedup |
 |-------|------|-------------|---------|
-| Q1: Monthly Encounters by Specialty | 2 joins, ~1.2s | **0 joins**, ~0.05s | **24x** |
-| Q2: Diagnosis-Procedure Pairs | 3 joins, ~3.5s | **0 joins**, ~0.05s | **70x** |
-| Q3: 30-Day Readmission Rate | 3+self, ~5.0s | **0 joins**, ~0.02s | **250x** |
-| Q4: Revenue by Specialty & Month | 3 joins, ~1.8s | **0 joins**, ~0.03s | **60x** |
+| Q1: Monthly Encounters by Specialty | 2 joins, ~0.046s | **0 joins**, ~0.031s | **1.5x** |
+| Q2: Diagnosis-Procedure Pairs | 3 joins, ~0.218s | **0 joins**, ~0.047s | **4.6x** |
+| Q3: 30-Day Readmission Rate | 2 joins, ~0.047s | **0 joins**, ~0.025s | **1.9x** |
+| Q4: Revenue by Specialty & Month | 3 joins, ~0.063s | **0 joins**, ~0.032s | **2.0x** |
 
-**Total: ~11.5s → ~0.15s = 77x faster**
+**Total: ~0.37s → ~0.14s = ~2.8x faster**
 
 ### Why Zero Joins Are Possible
 
@@ -71,7 +71,7 @@ No JOINs needed!
 
 | Benefit | Quantified Impact |
 |---------|-------------------|
-| **Query Speed** | 24x to 250x faster |
+| **Query Speed** | 1.5x to 4.6x faster |
 | **Query Simplicity** | 0 JOINs instead of 2-3 |
 | **No Self-Joins** | is_readmission pre-computed |
 | **No Date Functions** | Year/month pre-stored |
@@ -82,7 +82,7 @@ No JOINs needed!
 **Absolutely yes.**
 
 The trade-offs (larger fact table, more complex ETL) are minimal compared to:
-- 77x faster query execution
+- ~2.8x faster query execution
 - Simpler SQL for analysts
 - Sub-second dashboard response times
 - Feasible ad-hoc queries
@@ -119,24 +119,24 @@ Most reports only need primary diagnosis (80% of queries) → zero joins.
 
 ## 4. Performance Quantification
 
-### Query 3: 30-Day Readmission Rate (Biggest Win)
+### Query 3: 30-Day Readmission Rate
 
 | Metric | OLTP Query | Star Schema Query |
 |--------|------------|-------------------|
-| **Execution Time** | ~5.0 seconds | **~0.02 seconds** |
-| **Improvement** | - | **250x faster** |
-| **Joins** | 3 + self-join | **0** |
+| **Execution Time** | ~0.047 seconds | **~0.025 seconds** |
+| **Improvement** | - | **1.9x faster** |
+| **Joins** | 2 | **0** |
 | **Query Complexity** | Complex CTEs | Simple GROUP BY |
 
-**Why**: The `is_readmission` flag is pre-computed during ETL using window functions, completely eliminating the expensive self-join.
+**Why**: The `is_readmission` flag is pre-computed during ETL using window functions, eliminating the need for self-join logic at query time.
 
 ### Query 4: Revenue by Specialty & Month
 
 | Metric | OLTP Query | Star Schema Query |
 |--------|------------|-------------------|
-| **Execution Time** | ~1.8 seconds | **~0.03 seconds** |
-| **Improvement** | - | **60x faster** |
-| **Joins** | 4 tables | **0** |
+| **Execution Time** | ~0.063 seconds | **~0.032 seconds** |
+| **Improvement** | - | **2.0x faster** |
+| **Joins** | 3 tables | **0** |
 
 **Why**: 
 - Billing amounts pre-aggregated in fact table
@@ -149,11 +149,11 @@ Most reports only need primary diagnosis (80% of queries) → zero joins.
 
 Even with optimized OLTP queries (using window functions), the star schema wins:
 
-| Query | Optimized OLTP | Star Schema | Star Schema Still Wins By |
-|-------|----------------|-------------|---------------------------|
-| Q3 (Readmissions) | 2 joins, ~1.5s | 0 joins, ~0.02s | 75x |
-| Q1 (Monthly) | 2 joins, ~1.2s | 0 joins, ~0.05s | 24x |
-| Q4 (Revenue) | 3 joins, ~1.8s | 0 joins, ~0.03s | 60x |
+| Query | Optimized OLTP | Star Schema | Star Schema Wins By |
+|-------|----------------|-------------|---------------------|
+| Q3 (Readmissions) | 2 joins, ~0.047s | 0 joins, ~0.025s | 1.9x |
+| Q1 (Monthly) | 2 joins, ~0.046s | 0 joins, ~0.031s | 1.5x |
+| Q4 (Revenue) | 3 joins, ~0.063s | 0 joins, ~0.032s | 2.0x |
 
 **Key Insight**: Window functions can optimize OLTP (e.g., replacing self-joins), but they can't eliminate the fundamental join overhead of normalization.
 
@@ -165,9 +165,9 @@ Even with optimized OLTP queries (using window functions), the star schema wins:
 
 | Aspect | OLTP (Normalized) | Star Schema (Zero-Join) |
 |--------|-------------------|-------------------------|
-| **Joins per query** | 2-4 | **0** |
-| **Total query time** | ~11.5s | **~0.15s** |
-| **Overall speedup** | - | **77x faster** |
+| **Joins per query** | 2-3 | **0** |
+| **Total query time** | ~0.37s | **~0.14s** |
+| **Overall speedup** | - | **~2.8x faster** |
 | **Query complexity** | CTEs, self-joins | Simple GROUP BY |
 | **Analyst experience** | Complex SQL | Intuitive queries |
 
@@ -189,4 +189,7 @@ Zero-join queries handle 80% of analytical needs. Use joins for:
 
 ---
 
-This project demonstrates that **aggressive denormalization** is the key to high-performance analytics. By storing commonly-queried attributes directly in the fact table, we achieve zero-join queries that are 77x faster than normalized OLTP.
+This project demonstrates that **aggressive denormalization** is the key to high-performance analytics. By storing commonly-queried attributes directly in the fact table, we achieve zero-join queries that are ~2.8x faster than normalized OLTP.
+
+> [!NOTE]
+> Performance improvements scale significantly with larger datasets (millions of rows).

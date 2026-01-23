@@ -140,7 +140,7 @@ erDiagram
 
 ## Performance Comparison
 
-| Query | OLTP | Star Schema (Zero-Join) | Speedup |
+ | Query | OLTP | Star Schema (Zero-Join) | Speedup |
 |-------|------|-------------------------|---------|
 | Q1: Monthly by Specialty | 2 joins, ~0.046s | 0 joins, ~0.031s | **1.5x** |
 | Q2: Diagnosis-Procedure | 3 joins, ~0.218s | 0 joins, ~0.047s | **4.6x** |
